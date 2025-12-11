@@ -30,21 +30,54 @@ def save_db(data):
 
 # --- CRYPTOGRAPHY ENGINE (Client Side) ---
 # This runs locally on the user's "Device" (Session State)
+# Add this line BEFORE generating keys
+st.session_state['user_name'] = user  # Saves "User A" or "User B" to state
+if 'private_key' not in st.session_state:
+    priv, pub = generate_keys() 
+    # ... rest of the code
+# Replace your existing generate_keys() function with this:
 
 def generate_keys():
-    """Generates a pair of public/private keys for the session."""
+    """Generates keys OR loads them if they already exist on disk."""
+    key_file = f"private_key_{st.session_state.get('user_name', 'default')}.pem"
+    
+    # 1. Try to load existing key from disk
+    if os.path.exists(key_file):
+        with open(key_file, "rb") as f:
+            private_key = serialization.load_pem_private_key(
+                f.read(),
+                password=None,
+                backend=default_backend()
+            )
+        # Generate the public key from the loaded private key
+        public_key = private_key.public_key()
+        pem_public = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        return private_key, pem_public
+
+    # 2. If no file, generate NEW keys
     private_key = rsa.generate_private_key(
         public_exponent=65537,
         key_size=2048,
         backend=default_backend()
     )
     public_key = private_key.public_key()
-    
-    # Serialize public key to share with "Server"
     pem_public = public_key.public_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
+    
+    # 3. Save the new private key to disk
+    pem_private = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    with open(key_file, "wb") as f:
+        f.write(pem_private)
+        
     return private_key, pem_public
 
 def encrypt_message(message, public_key_pem):
