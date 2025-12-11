@@ -183,46 +183,69 @@ st.markdown("---")
 # 2. Chat Module
 st.subheader("💬 Private Chat")
 
-with st.form("chat_form", clear_on_submit=True):
-    msg_input = st.text_input("Type a message...")
-    submitted = st.form_submit_button("Send Encrypted")
-    
-    if submitted and msg_input:
-        db = load_db()
-        if 'keys' in db and partner in db['keys']:
+# Load the database to check for keys
+db = load_db()
+
+# STATUS CHECK: Does the partner have a Public Key?
+partner_has_key = 'keys' in db and partner in db['keys']
+
+if partner_has_key:
+    # --- SCENARIO 1: Partner is ready. Show Chat Input. ---
+    with st.form("chat_form", clear_on_submit=True):
+        msg_input = st.text_input("Type a message...")
+        submitted = st.form_submit_button("Send Encrypted")
+        
+        if submitted and msg_input:
+            # Get User B's Public Key
             partner_pub_key = db['keys'][partner]
+            
+            # Encrypt the message
             encrypted_payload = encrypt_message(msg_input, partner_pub_key)
             
+            # Create Message Object
             msg_obj = {
                 "from": user,
                 "to": partner,
                 "payload": encrypted_payload,
                 "timestamp": datetime.now().strftime("%H:%M")
             }
+            
+            # Save to Database
             db['messages'].append(msg_obj)
             save_db(db)
-        else:
-            st.error(f"Waiting for {partner} to come online (Key Exchange Pending)")
+            st.rerun() # Refresh immediately to show the sent message
 
+else:
+    # --- SCENARIO 2: Partner key is missing. Disable Chat. ---
+    st.error(f"🚫 Cannot send message: **{partner}** has not logged in yet.")
+    st.info(f"Ask **{partner}** to open this app in their browser to generate their Encryption Keys.")
+
+# --- MESSAGE DISPLAY ---
 chat_container = st.container()
-db = load_db()
 
 with chat_container:
+    # Filter messages for this conversation
     my_msgs = [m for m in db['messages'] if m['to'] == user or m['from'] == user]
     
     if not my_msgs:
-        st.info("No messages yet. Start the conversation!")
+        st.caption("No messages yet.")
     
     for msg in my_msgs:
         is_me = msg['from'] == user
+        
         if is_me:
+            # Message I sent
             with st.chat_message("user"):
                 st.write("🔒 *[Encrypted Message Sent]*")
                 st.caption(f"{msg['timestamp']} ✓")
         else:
+            # Message I received
             decrypted_text = decrypt_message(msg['payload'], st.session_state['private_key'])
             with st.chat_message("assistant"):
-                st.write(decrypted_text)
+                if "Error" in decrypted_text:
+                    st.error("⚠️ Message could not be decrypted. Keys may have changed.")
+                else:
+                    st.write(decrypted_text)
                 st.caption(f"From {partner} • {msg['timestamp']}")
 
 # --- AUTO REFRESH LOOP ---
